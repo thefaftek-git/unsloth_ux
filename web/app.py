@@ -109,6 +109,64 @@ def get_available_datasets(base_dir: str = "./datasets"):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/huggingface-search-datasets/")
+def search_huggingface_datasets(query: str = "", limit: int = 10):
+    """
+    Search for datasets on Hugging Face hub.
+
+    Args:
+        query (str): Search query. Defaults to "" (returns popular datasets).
+        limit (int): Number of results to return. Defaults to 10.
+
+    Returns:
+        Dict[str, Any]: Status and list of dataset information.
+    """
+    try:
+        import requests
+
+        # Base URL for Hugging Face datasets API
+        api_url = "https://huggingface.co/api/datasets"
+
+        # Prepare query parameters
+        params = {
+            "search": query,
+            "limit": limit,
+            "sort": "downloads",  # Sort by popularity
+            "direction": -1,     # Descending order
+            "tags": "public"      # Only public datasets
+        }
+
+        # Make request to Hugging Face API
+        response = requests.get(api_url, params=params)
+
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"Hugging Face API error: {response.text}")
+
+        data = response.json()
+
+        # Extract relevant information for each dataset
+        datasets = []
+        for item in data:
+            dataset_id = item.get("id", "")
+            dataset_info = {
+                "id": dataset_id,
+                "name": dataset_id.split("/")[-1],
+                "full_name": dataset_id,
+                "description": item.get("tags", []),
+                "downloads": item.get("downloads", 0)
+            }
+            datasets.append(dataset_info)
+
+        return {
+            "status": "success",
+            "datasets": datasets,
+            "count": len(datasets),
+            "query": query
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 # Create a global framework instance
 framework_instance = FrameworkClass()
 

@@ -73,8 +73,19 @@
         <div id="modelStatus" class="status"></div>
 
         <h2>Dataset Selection</h2>
-        <select id="datasetSelect">
-            <!-- Datasets will be loaded dynamically -->
+
+        <!-- Hugging Face dataset search -->
+        <input type="text" id="hfDatasetSearch" placeholder="Search Hugging Face datasets..." value="">
+        <button onclick="searchHuggingFaceDatasets()">Search</button>
+        <select id="hfDatasetSelect" size="5">
+            <!-- Hugging Face datasets will be loaded dynamically -->
+        </select>
+
+        <!-- Local dataset selection -->
+        <hr/>
+        <label for="localDatasetSelect">Local Datasets:</label>
+        <select id="localDatasetSelect">
+            <!-- Local datasets will be loaded dynamically -->
         </select>
 
         <input type="number" id="subsetSize" placeholder="Number of samples (optional)" value="5">
@@ -97,10 +108,60 @@
     </div>
 
     <script>
-        async function loadDatasets() {
+        async function searchHuggingFaceDatasets() {
             try {
-                // Load available datasets from the API
-                const datasetSelect = document.getElementById('datasetSelect');
+                const query = document.getElementById('hfDatasetSearch').value.trim();
+                const hfDatasetSelect = document.getElementById('hfDatasetSelect');
+                hfDatasetSelect.innerHTML = '';
+
+                // Show loading indicator
+                const loadingOption = document.createElement('option');
+                loadingOption.value = '';
+                loadingOption.textContent = 'Loading datasets...';
+                loadingOption.disabled = true;
+                loadingOption.selected = true;
+                hfDatasetSelect.appendChild(loadingOption);
+
+                // Call the backend API to search Hugging Face datasets
+                const response = await fetch(`/huggingface-search-datasets/?query=${encodeURIComponent(query)}`);
+                const data = await response.json();
+
+                if (data.status === 'success' && Array.isArray(data.datasets)) {
+                    // Add a default option
+                    hfDatasetSelect.innerHTML = '';
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Select a Hugging Face dataset...';
+                    defaultOption.disabled = true;
+                    defaultOption.selected = query === '' ? true : false;
+                    hfDatasetSelect.appendChild(defaultOption);
+
+                    // Add all available datasets to the dropdown
+                    data.datasets.forEach(dataset => {
+                        const option = document.createElement('option');
+                        option.value = dataset.full_name;  // Use full name for loading
+                        option.textContent = `${dataset.name} (${dataset.downloads.toLocaleString()} downloads)`;
+                        if (!defaultOption.selected) {
+                            option.selected = true;  // Select first item by default when search results are shown
+                        }
+                        hfDatasetSelect.appendChild(option);
+                    });
+
+                    return true;
+                } else {
+                    throw new Error(data.message || 'Failed to load datasets');
+                }
+            } catch (error) {
+                console.error('Error searching Hugging Face datasets:', error);
+                document.getElementById('datasetStatus').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function loadLocalDatasets() {
+            try {
+                // Load available local datasets from the API
+                const datasetSelect = document.getElementById('localDatasetSelect');
                 datasetSelect.innerHTML = '';
 
                 // Call the backend API to get available datasets
@@ -111,7 +172,7 @@
                     // Add a default option
                     const defaultOption = document.createElement('option');
                     defaultOption.value = '';
-                    defaultOption.textContent = 'Select a dataset...';
+                    defaultOption.textContent = 'Select a local dataset...';
                     defaultOption.disabled = true;
                     defaultOption.selected = true;
                     datasetSelect.appendChild(defaultOption);
@@ -129,7 +190,7 @@
                     throw new Error(data.message || 'Failed to load datasets');
                 }
             } catch (error) {
-                console.error('Error loading datasets:', error);
+                console.error('Error loading local datasets:', error);
                 document.getElementById('datasetStatus').textContent = `Error: ${error.message}`;
                 return false;
             }
@@ -157,15 +218,24 @@
         }
 
         async function loadDataset() {
-            const datasetSelect = document.getElementById('datasetSelect');
+            // Check which dataset source is selected (local or Hugging Face)
+            const hfDatasetSelect = document.getElementById('hfDatasetSelect');
+            const localDatasetSelect = document.getElementById('localDatasetSelect');
             const subsetSizeInput = document.getElementById('subsetSize');
-            const datasetPath = datasetSelect.value;
-            const subsetSize = subsetSizeInput.value || 100;
 
-            if (!datasetPath) {
+            let datasetPath;
+            if (hfDatasetSelect.value) {
+                // Hugging Face dataset selected
+                datasetPath = hfDatasetSelect.value;
+            } else if (localDatasetSelect.value) {
+                // Local dataset selected
+                datasetPath = localDatasetSelect.value;
+            } else {
                 alert('Please select a dataset first.');
                 return false;
             }
+
+            const subsetSize = subsetSizeInput.value || 100;
 
             try {
                 const response = await fetch(`/load-dataset-from-path/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataset_path: datasetPath, subset_size: subsetSize }) });
@@ -252,7 +322,11 @@
 
         // Initialize the UI
         document.addEventListener('DOMContentLoaded', async () => {
-            await loadDatasets();
+            // Load local datasets and Hugging Face popular datasets by default
+            await loadLocalDatasets();
+
+            // Load some popular Hugging Face datasets by default
+            await searchHuggingFaceDatasets();
         });
     </script>
 </body>
