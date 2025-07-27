@@ -441,7 +441,7 @@ def train_model(request: TrainingRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/setup-training/")
+@app.get("/setup-training/")
 def setup_training(output_dir: str = "outputs", max_steps: int = 30):
     """
     Set up the training configuration.
