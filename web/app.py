@@ -44,11 +44,16 @@ app.add_middleware(
 # Serve static files from the "frontend" directory
 static_dir = Path(__file__).parent / "frontend"
 if static_dir.exists():
+    # Mount frontend at /web endpoint
     app.mount("/web", StaticFiles(directory=static_dir), name="frontend")
+    # Also serve index.html at root for convenience
+    @app.get("/")
+    def get_index():
+        return HTMLResponse(open(static_dir / "index.html").read())
 
-@app.get("/")
-def read_root():
-    """Root endpoint."""
+@app.get("/api")
+def read_api_root():
+    """API root endpoint."""
     return {"message": "Fine-tuning framework API"}
 
 @app.get("/available-datasets/")

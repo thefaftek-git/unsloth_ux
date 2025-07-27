@@ -56,12 +56,12 @@ fine_tuning_project/
 
 The web interface provides the following endpoints:
 
-- `GET /`: Root endpoint
-- `POST /load-model/?model_name=gpt2`: Load a pre-trained model
-- `POST /load-dataset/?dataset_path=/path/to/dataset&subset_size=100`: Load dataset for fine-tuning
-- `POST /setup-training/?output_dir=outputs&max_steps=30`: Set up training configuration
+- `GET /api`: Root endpoint (API)
+- `POST /load-model/`: Load a pre-trained model
+- `POST /load-dataset/`: Load dataset for fine-tuning
+- `POST /setup-training/`: Set up training configuration
 - `POST /train/`: Execute fine-tuning training
-- `POST /save-model/?output_dir=fine_tuned_model`: Save the fine-tuned model
+- `POST /save-model/`: Save the fine-tuned model
 
 ### Web Interface
 
@@ -71,7 +71,8 @@ The web interface provides the following endpoints:
    ```
 
 2. **Open the frontend** in your browser:
-   [http://localhost:8020/frontend.html](http://localhost:8020/frontend.html)
+   - [http://localhost:8070/web/index.html](http://localhost:8070/web/index.html)
+   - Or simply [http://localhost:8070](http://localhost:8070) (serves the same content)
 
 3. **Use the interface**:
    - Select a model (GPT-2 or DistilBERT)
