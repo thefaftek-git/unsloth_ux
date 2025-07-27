@@ -1,0 +1,249 @@
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fine-Tuning Framework UI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #e8f5e9;
+            border-radius: 4px;
+        }
+        .error {
+            color: red;
+        }
+        select, input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Fine-Tuning Framework UI</h1>
+
+    <div class="container">
+        <h2>Model Selection</h2>
+        <select id="modelSelect">
+            <option value="gpt2">GPT-2 (small)</option>
+            <option value="distilbert-base-uncased">DistilBERT</option>
+        </select>
+
+        <button onclick="loadModel()">Load Model</button>
+        <div id="modelStatus" class="status"></div>
+
+        <h2>Dataset Selection</h2>
+        <select id="datasetSelect">
+            <!-- Datasets will be loaded dynamically -->
+        </select>
+
+        <input type="number" id="subsetSize" placeholder="Number of samples (optional)" value="5">
+
+        <button onclick="loadDataset()">Load Dataset</button>
+        <div id="datasetStatus" class="status"></div>
+
+        <h2>Training Configuration</h2>
+        <input type="text" id="outputDir" placeholder="Output directory (optional)" value="fine_tuned_model">
+        <input type="number" id="maxSteps" placeholder="Max training steps (optional)" value="1">
+
+        <button onclick="setupTraining()">Setup Training</button>
+        <div id="trainingStatus" class="status"></div>
+
+        <h2>Fine-Tuning Actions</h2>
+        <button onclick="startTraining()">Start Training</button>
+        <button onclick="saveModel()">Save Model</button>
+
+        <div id="trainingResult" class="status"></div>
+    </div>
+
+    <script>
+        async function loadDatasets() {
+            try {
+                // Hardcode the FineTome dataset for now
+                const datasetSelect = document.getElementById('datasetSelect');
+                datasetSelect.innerHTML = '';
+
+                // Add FineTome-100k dataset option
+                const fineTomeOption = document.createElement('option');
+                fineTomeOption.value = '/workspace/FineTome-100k';
+                fineTomeOption.textContent = 'FineTome-100k';
+                datasetSelect.appendChild(fineTomeOption);
+
+                return true;
+            } catch (error) {
+                console.error('Error loading datasets:', error);
+                document.getElementById('datasetStatus').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function loadModel() {
+            const modelSelect = document.getElementById('modelSelect');
+            const modelName = modelSelect.value;
+
+            try {
+                const response = await fetch(`/load-model/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_name: modelName }) });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('modelStatus').textContent = `Model loaded: ${modelName}`;
+                    return true;
+                } else {
+                    throw new Error(data.detail || 'Failed to load model');
+                }
+            } catch (error) {
+                console.error('Error loading model:', error);
+                document.getElementById('modelStatus').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function loadDataset() {
+            const datasetSelect = document.getElementById('datasetSelect');
+            const subsetSizeInput = document.getElementById('subsetSize');
+            const datasetPath = datasetSelect.value;
+            const subsetSize = subsetSizeInput.value || 100;
+
+            if (!datasetPath) {
+                alert('Please select a dataset first.');
+                return false;
+            }
+
+            try {
+                const response = await fetch(`/load-dataset-from-path/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataset_path: datasetPath, subset_size: subsetSize }) });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('datasetStatus').textContent = `Dataset loaded: ${datasetPath} (${data.num_samples} samples)`;
+                    return true;
+                } else {
+                    throw new Error(data.detail || 'Failed to load dataset');
+                }
+            } catch (error) {
+                console.error('Error loading dataset:', error);
+                document.getElementById('datasetStatus').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function setupTraining() {
+            const outputDirInput = document.getElementById('outputDir');
+            const maxStepsInput = document.getElementById('maxSteps');
+
+            const outputDir = outputDirInput.value || 'fine_tuned_model';
+            const maxSteps = maxStepsInput.value || 30;
+
+            try {
+                const response = await fetch(`/setup-training/?output_dir=${encodeURIComponent(outputDir)}&max_steps=${maxSteps}`);
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('trainingStatus').textContent = `Training setup complete`;
+                    return true;
+                } else {
+                    throw new Error(data.detail || 'Failed to setup training');
+                }
+            } catch (error) {
+                console.error('Error setting up training:', error);
+                document.getElementById('trainingStatus').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function startTraining() {
+            try {
+                const response = await fetch(`/train/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('trainingResult').textContent = `Training completed successfully! Loss: ${data.training_stats[1].toFixed(4)}`;
+                    return true;
+                } else {
+                    throw new Error(data.detail || 'Failed to start training');
+                }
+            } catch (error) {
+                console.error('Error starting training:', error);
+                document.getElementById('trainingResult').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        async function saveModel() {
+            try {
+                const response = await fetch(`/save-model/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('trainingResult').textContent += ` | Model saved to ${data.model_saved_to}`;
+                    return true;
+                } else {
+                    throw new Error(data.detail || 'Failed to save model');
+                }
+            } catch (error) {
+                console.error('Error saving model:', error);
+                document.getElementById('trainingResult').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
+        // Initialize the UI
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadDatasets();
+        });
+    </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
