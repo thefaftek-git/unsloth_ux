@@ -99,17 +99,35 @@
     <script>
         async function loadDatasets() {
             try {
-                // Hardcode the FineTome dataset for now
+                // Load available datasets from the API
                 const datasetSelect = document.getElementById('datasetSelect');
                 datasetSelect.innerHTML = '';
 
-                // Add FineTome-100k dataset option
-                const fineTomeOption = document.createElement('option');
-                fineTomeOption.value = '/workspace/FineTome-100k';
-                fineTomeOption.textContent = 'FineTome-100k';
-                datasetSelect.appendChild(fineTomeOption);
+                // Call the backend API to get available datasets
+                const response = await fetch(`/available-datasets/`);
+                const data = await response.json();
 
-                return true;
+                if (data.status === 'success' && Array.isArray(data.datasets)) {
+                    // Add a default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Select a dataset...';
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+                    datasetSelect.appendChild(defaultOption);
+
+                    // Add all available datasets to the dropdown
+                    data.datasets.forEach(datasetPath => {
+                        const option = document.createElement('option');
+                        option.value = datasetPath;
+                        option.textContent = datasetPath.split('/').pop(); // Use directory name as display text
+                        datasetSelect.appendChild(option);
+                    });
+
+                    return true;
+                } else {
+                    throw new Error(data.message || 'Failed to load datasets');
+                }
             } catch (error) {
                 console.error('Error loading datasets:', error);
                 document.getElementById('datasetStatus').textContent = `Error: ${error.message}`;
