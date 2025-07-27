@@ -167,6 +167,68 @@ def search_huggingface_datasets(query: str = "", limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# Function to check and download default dataset if needed
+def ensure_default_dataset():
+    """Check if datasets directory is empty and download FineTome-100k if so."""
+    import requests
+    from pathlib import Path
+
+    datasets_dir = Path("./datasets")
+    print(f"Checking datasets directory: {datasets_dir}")
+
+    # Create datasets directory if it doesn't exist
+    datasets_dir.mkdir(exist_ok=True)
+
+    # Check if directory is empty (no dataset folders)
+    dataset_folders = [d for d in datasets_dir.iterdir() if d.is_dir()]
+    print(f"Found existing datasets: {len(dataset_folders)}")
+
+    if len(dataset_folders) == 0:
+        print("No datasets found, attempting to download FineTome-100k...")
+
+        # Try to load the dataset from Hugging Face
+        try:
+            from datasets import load_dataset
+
+            # Download and save FineTome-100k dataset locally
+            finetome_dataset = load_dataset("mlabonne/FineTome-100k", split='train')
+
+            # Create a directory for the default dataset
+            default_dataset_dir = datasets_dir / "FineTome-100k"
+            default_dataset_dir.mkdir(exist_ok=True)
+
+            # Save as JSONL format (compatible with our framework)
+            save_path = default_dataset_dir / "data.jsonl"
+
+            print(f"Saving FineTome-100k dataset to {save_path}")
+
+            # Convert to JSON lines format
+            with open(save_path, 'w', encoding='utf-8') as f:
+                for i, example in enumerate(finetome_dataset):
+                    if i >= 100:  # Limit to first 100 samples for default dataset
+                        break
+                    json_str = {
+                        "conversations": [
+                            {"from": "user", "value": example.get("text", "")}
+                        ]
+                    }
+                    f.write(f"{json_str}\n")
+
+            print(f"Downloaded and saved FineTome-100k default dataset with {i+1} samples")
+            return True
+
+        except Exception as e:
+            print(f"Failed to download default dataset: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    else:
+        print("Datasets found, skipping default dataset download")
+        return True
+
+# Check for default dataset at startup
+ensure_default_dataset()
+
 # Create a global framework instance
 framework_instance = FrameworkClass()
 

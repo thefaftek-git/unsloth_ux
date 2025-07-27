@@ -1,0 +1,8 @@
+
+# Python cache files
+__pycache__
+*.pyc
+
+# Dataset files (generated at runtime)
+datasets/*.jsonl
+datasets/*/*.jsonl
