@@ -52,12 +52,12 @@ def read_root():
     return {"message": "Fine-tuning framework API"}
 
 @app.get("/available-datasets/")
-def get_available_datasets(base_dir: str = "/workspace"):
+def get_available_datasets(base_dir: str = "./datasets"):
     """
     Get a list of available datasets in the specified directory.
 
     Args:
-        base_dir (str): Base directory to search for datasets. Defaults to "/workspace".
+        base_dir (str): Base directory to search for datasets. Defaults to "./datasets".
 
     Returns:
         Dict[str, List[str]]: Status and list of dataset paths.
