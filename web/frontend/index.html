@@ -64,7 +64,19 @@
 
     <div class="container">
         <h2>Model Selection</h2>
-        <select id="modelSelect">
+
+        <!-- Hugging Face model search -->
+        <input type="text" id="hfModelSearch" placeholder="Search Hugging Face models..." value="">
+        <button onclick="searchHuggingFaceModels()">Search</button>
+        <select id="hfModelSelect" size="5">
+            <!-- Hugging Face models will be loaded dynamically -->
+        </select>
+
+        <hr/>
+
+        <!-- Local model selection (pre-defined) -->
+        <label for="localModelSelect">Local Models:</label>
+        <select id="localModelSelect">
             <option value="gpt2">GPT-2 (small)</option>
             <option value="distilbert-base-uncased">DistilBERT</option>
         </select>
@@ -158,6 +170,56 @@
             }
         }
 
+        async function searchHuggingFaceModels() {
+            try {
+                const query = document.getElementById('hfModelSearch').value.trim();
+                const hfModelSelect = document.getElementById('hfModelSelect');
+                hfModelSelect.innerHTML = '';
+
+                // Show loading indicator
+                const loadingOption = document.createElement('option');
+                loadingOption.value = '';
+                loadingOption.textContent = 'Loading models...';
+                loadingOption.disabled = true;
+                loadingOption.selected = true;
+                hfModelSelect.appendChild(loadingOption);
+
+                // Call the backend API to search Hugging Face models
+                const response = await fetch(`/huggingface-search-models/?query=${encodeURIComponent(query)}`);
+                const data = await response.json();
+
+                if (data.status === 'success' && Array.isArray(data.models)) {
+                    // Add a default option
+                    hfModelSelect.innerHTML = '';
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Select a Hugging Face model...';
+                    defaultOption.disabled = true;
+                    defaultOption.selected = query === '' ? true : false;
+                    hfModelSelect.appendChild(defaultOption);
+
+                    // Add all available models to the dropdown
+                    data.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.full_name;  // Use full name for loading
+                        option.textContent = `${model.name} (${model.downloads.toLocaleString()} downloads)`;
+                        if (!defaultOption.selected) {
+                            option.selected = true;  // Select first item by default when search results are shown
+                        }
+                        hfModelSelect.appendChild(option);
+                    });
+
+                    return true;
+                } else {
+                    throw new Error(data.message || 'Failed to load models');
+                }
+            } catch (error) {
+                console.error('Error searching Hugging Face models:', error);
+                document.getElementById('modelStatus').textContent = `Error: ${error.message}`;
+                return false;
+            }
+        }
+
         async function loadLocalDatasets() {
             try {
                 // Load available local datasets from the API
@@ -197,8 +259,21 @@
         }
 
         async function loadModel() {
-            const modelSelect = document.getElementById('modelSelect');
-            const modelName = modelSelect.value;
+            // Check which model source is selected (local or Hugging Face)
+            const hfModelSelect = document.getElementById('hfModelSelect');
+            const localModelSelect = document.getElementById('localModelSelect');
+
+            let modelName;
+            if (hfModelSelect.value) {
+                // Hugging Face model selected
+                modelName = hfModelSelect.value;
+            } else if (localModelSelect.value) {
+                // Local model selected
+                modelName = localModelSelect.value;
+            } else {
+                alert('Please select a model first.');
+                return false;
+            }
 
             try {
                 const response = await fetch(`/load-model/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_name: modelName }) });
@@ -327,6 +402,9 @@
 
             // Load some popular Hugging Face datasets by default
             await searchHuggingFaceDatasets();
+
+            // Load some popular Hugging Face models by default
+            await searchHuggingFaceModels();
         });
     </script>
 </body>

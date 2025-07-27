@@ -232,6 +232,64 @@ ensure_default_dataset()
 # Create a global framework instance
 framework_instance = FrameworkClass()
 
+@app.get("/huggingface-search-models/")
+def search_huggingface_models(query: str = "", limit: int = 10):
+    """
+    Search for models on Hugging Face hub.
+
+    Args:
+        query (str): Search query. Defaults to "" (returns popular models).
+        limit (int): Number of results to return. Defaults to 10.
+
+    Returns:
+        Dict[str, Any]: Status and list of model information.
+    """
+    try:
+        import requests
+
+        # Base URL for Hugging Face models API
+        api_url = "https://huggingface.co/api/models"
+
+        # Prepare query parameters
+        params = {
+            "search": query,
+            "limit": limit,
+            "sort": "downloads",  # Sort by popularity
+            "direction": -1,     # Descending order
+            "tags": "public"      # Only public models
+        }
+
+        # Make request to Hugging Face API
+        response = requests.get(api_url, params=params)
+
+        if response.status_code != 200:
+            raise HTTPException(status_code=response.status_code, detail=f"Hugging Face API error: {response.text}")
+
+        data = response.json()
+
+        # Extract relevant information for each model
+        models = []
+        for item in data:
+            model_id = item.get("id", "")
+            model_info = {
+                "id": model_id,
+                "name": model_id.split("/")[-1],
+                "full_name": model_id,
+                "description": item.get("tags", []),
+                "downloads": item.get("downloads", 0)
+            }
+            models.append(model_info)
+
+        return {
+            "status": "success",
+            "models": models,
+            "count": len(models),
+            "query": query
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.post("/load-model/")
 def load_model(model_name: str = "gpt2"):
     """
