@@ -25,10 +25,42 @@ if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
 try:
-    from fine_tuning_framework_cpu import FineTuningFramework as FrameworkClass
-except NotImplementedError:
-    print("Using mock framework due to GPU requirement")
-    from mock_fine_tuning_framework import MockFineTuningFramework as FrameworkClass
+    from fine_tuning_framework import FineTuningFramework as GPUFrameworkClass
+    GPU_AVAILABLE = True
+except (NotImplementedError, ImportError):
+    print("GPU framework unavailable, using CPU and mock frameworks")
+    try:
+        from mock_fine_tuning_framework import MockFineTuningFramework as MockFrameworkClass
+        GPU_AVAILABLE = False
+    except ImportError:
+        print("Using mock framework only")
+        from mock_fine_tuning_framework import MockFineTuningFramework as MockFrameworkClass
+        GPU_AVAILABLE = False
+    
+# Function to choose appropriate framework based on model
+def get_framework_class(model_name: str):
+    """Choose the appropriate framework based on model type."""
+    # Always use GPU framework if available
+    if GPU_AVAILABLE:
+        return GPUFrameworkClass
+    else:
+        return MockFrameworkClass
+
+def get_hf_token():
+    """Get HF token from file or environment."""
+    import os
+    
+    # Try to read from hf_token file
+    try:
+        with open('hf_token', 'r') as f:
+            token = f.read().strip()
+            if token:
+                return token
+    except FileNotFoundError:
+        pass
+    
+    # Try environment variables
+    return os.getenv('HF_TOKEN') or os.getenv('HUGGINGFACE_TOKEN')
 
 app = FastAPI()
 
@@ -78,26 +110,40 @@ def get_available_datasets(base_dir: str = "./datasets"):
         for item in base_path.iterdir():
             print(f"Checking item: {item}")
             if item.is_dir():
-                # Check both root and data subdirectory
+                # Check for different dataset formats
                 parquet_files_root = list(item.glob("*.parquet"))
-                jsonl_files_root = list(item.glob("data.jsonl"))
-
+                jsonl_files_root = list(item.glob("*.jsonl")) + list(item.glob("data.jsonl"))
+                json_files_root = list(item.glob("*.json"))
+                arrow_files_root = list(item.glob("*.arrow"))
+                dataset_info_file = item / "dataset_info.json"
+                
                 # Also check in data/ subdirectory
                 data_dir = item / "data"
                 if data_dir.exists() and data_dir.is_dir():
                     parquet_files_data = list(data_dir.glob("*.parquet"))
-                    jsonl_files_data = list(data_dir.glob("data.jsonl"))
+                    jsonl_files_data = list(data_dir.glob("*.jsonl"))
+                    json_files_data = list(data_dir.glob("*.json"))
+                    arrow_files_data = list(data_dir.glob("*.arrow"))
                 else:
                     parquet_files_data = []
                     jsonl_files_data = []
+                    json_files_data = []
+                    arrow_files_data = []
 
                 print(f"Found parquet files (root): {parquet_files_root}")
                 print(f"Found parquet files (data/): {parquet_files_data}")
                 print(f"Found jsonl files (root): {jsonl_files_root}")
                 print(f"Found jsonl files (data/): {jsonl_files_data}")
+                print(f"Found json files (root): {json_files_root}")
+                print(f"Found json files (data/): {json_files_data}")
+                print(f"Found arrow files (root): {arrow_files_root}")
+                print(f"Found arrow files (data/): {arrow_files_data}")
+                print(f"Found dataset_info.json: {dataset_info_file.exists()}")
 
-                if parquet_files_root or jsonl_files_root or parquet_files_data or jsonl_files_data:
-                    # Check for common dataset file patterns (parquet or jsonl)
+                # Consider it a dataset if it has any of these file types or dataset_info.json
+                if (parquet_files_root or jsonl_files_root or json_files_root or arrow_files_root or
+                    parquet_files_data or jsonl_files_data or json_files_data or arrow_files_data or
+                    dataset_info_file.exists()):
                     datasets.append(str(item))
                     print(f"Added dataset: {item}")
 
@@ -167,6 +213,79 @@ def search_huggingface_datasets(query: str = "", limit: int = 10):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+from pydantic import BaseModel
+from typing import Optional
+
+class LoadModelRequest(BaseModel):
+    model_name: str = "gpt2"
+    hf_token: Optional[str] = None
+    full_finetuning: bool = False  # New parameter for full fine-tuning
+
+class DownloadDatasetRequest(BaseModel):
+    dataset_name: str
+    subset_size: int = 1000
+
+@app.post("/download-dataset/")
+def download_dataset(request: DownloadDatasetRequest):
+    """
+    Download a dataset from Hugging Face and save it locally.
+
+    Args:
+        request (DownloadDatasetRequest): Request body containing dataset_name and subset_size.
+
+    Returns:
+        Dict[str, Any]: Status and dataset information.
+    """
+    try:
+        from datasets import load_dataset
+        from pathlib import Path
+
+        # Create datasets directory if it doesn't exist
+        datasets_dir = Path("./datasets")
+        datasets_dir.mkdir(exist_ok=True)
+
+        # Create a directory for this dataset
+        dataset_dir_name = request.dataset_name.replace("/", "_")  # Replace slash for filesystem safety
+        dataset_dir = datasets_dir / dataset_dir_name
+        
+        # Check if dataset already exists
+        if dataset_dir.exists():
+            return {
+                "status": "success", 
+                "message": f"Dataset {request.dataset_name} already exists locally at {dataset_dir}",
+                "dataset_path": str(dataset_dir)
+            }
+
+        print(f"Downloading dataset {request.dataset_name}...")
+        
+        # Download the dataset from Hugging Face
+        dataset = load_dataset(request.dataset_name, split='train')
+        
+        # Take subset if requested
+        if request.subset_size and len(dataset) > request.subset_size:
+            print(f"Taking subset of {request.subset_size} samples from {len(dataset)} total samples...")
+            dataset = dataset.select(range(request.subset_size))
+
+        # Create the dataset directory
+        dataset_dir.mkdir(exist_ok=True)
+
+        # Save the dataset in its original format
+        print(f"Saving dataset to {dataset_dir}...")
+        dataset.save_to_disk(str(dataset_dir))
+
+        print(f"Successfully downloaded and saved {request.dataset_name} with {len(dataset)} samples")
+        
+        return {
+            "status": "success",
+            "message": f"Dataset {request.dataset_name} downloaded successfully",
+            "dataset_path": str(dataset_dir),
+            "num_samples": len(dataset)
+        }
+
+    except Exception as e:
+        print(f"Error downloading dataset {request.dataset_name}: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to download dataset: {str(e)}")
+
 # Function to check and download default dataset if needed
 def ensure_default_dataset():
     """Check if datasets directory is empty and download FineTome-100k if so."""
@@ -190,31 +309,20 @@ def ensure_default_dataset():
         try:
             from datasets import load_dataset
 
-            # Download and save FineTome-100k dataset locally
+            # Download FineTome-100k dataset locally in its original format
             finetome_dataset = load_dataset("mlabonne/FineTome-100k", split='train')
 
             # Create a directory for the default dataset
             default_dataset_dir = datasets_dir / "FineTome-100k"
             default_dataset_dir.mkdir(exist_ok=True)
 
-            # Save as JSONL format (compatible with our framework)
-            save_path = default_dataset_dir / "data.jsonl"
+            # Save the dataset in its original format (parquet)
+            print(f"Saving FineTome-100k dataset to {default_dataset_dir}")
+            
+            # Save the dataset to disk maintaining its original structure
+            finetome_dataset.save_to_disk(str(default_dataset_dir))
 
-            print(f"Saving FineTome-100k dataset to {save_path}")
-
-            # Convert to JSON lines format
-            with open(save_path, 'w', encoding='utf-8') as f:
-                for i, example in enumerate(finetome_dataset):
-                    if i >= 100:  # Limit to first 100 samples for default dataset
-                        break
-                    json_str = {
-                        "conversations": [
-                            {"from": "user", "value": example.get("text", "")}
-                        ]
-                    }
-                    f.write(f"{json_str}\n")
-
-            print(f"Downloaded and saved FineTome-100k default dataset with {i+1} samples")
+            print(f"Downloaded and saved FineTome-100k dataset with {len(finetome_dataset)} samples")
             return True
 
         except Exception as e:
@@ -229,8 +337,13 @@ def ensure_default_dataset():
 # Check for default dataset at startup
 ensure_default_dataset()
 
-# Create a global framework instance
-framework_instance = FrameworkClass()
+# Create a global framework instance - will be replaced when loading models
+framework_instance = None
+
+def validate_framework_instance():
+    """Check if framework instance exists and raise error if not."""
+    if framework_instance is None:
+        raise HTTPException(status_code=400, detail="No model loaded. Please load a model first using /load-model/ endpoint.")
 
 @app.get("/huggingface-search-models/")
 def search_huggingface_models(query: str = "", limit: int = 10):
@@ -291,23 +404,33 @@ def search_huggingface_models(query: str = "", limit: int = 10):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/load-model/")
-def load_model(model_name: str = "gpt2"):
+def load_model(request: LoadModelRequest):
     """
     Load a pre-trained model for fine-tuning.
 
     Args:
-        model_name (str): Name of the model to load. Defaults to "gpt2".
+        request (LoadModelRequest): Request body containing model_name, optional hf_token, and full_finetuning flag.
 
     Returns:
         Dict[str, Any]: Status information.
     """
     global framework_instance
     try:
-        # Only reset if we're changing models or starting fresh
-        if framework_instance.model is None or framework_instance.tokenizer is None:
-            framework_instance = FrameworkClass()
-        framework_instance.load_model(model_name)
-        return {"status": "success", "model_loaded": model_name}
+        # Choose appropriate framework based on model type
+        FrameworkClass = get_framework_class(request.model_name)
+        framework_instance = FrameworkClass()
+        
+        # Use provided token or get from file/environment
+        hf_token = request.hf_token or get_hf_token()
+        
+        framework_instance.load_model(request.model_name, hf_token=hf_token, full_finetuning=request.full_finetuning)
+        
+        training_mode = "full fine-tuning" if request.full_finetuning else "LoRA fine-tuning"
+        return {
+            "status": "success", 
+            "model_loaded": request.model_name,
+            "training_mode": training_mode
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -331,6 +454,8 @@ async def load_dataset(file: UploadFile = File(None), dataset_path: str = None, 
         raise HTTPException(status_code=400, detail="Either 'file' or 'dataset_path' must be provided")
 
     try:
+        validate_framework_instance()
+        
         if file:
             # Save uploaded file temporarily
             temp_dir = Path("/tmp/fine_tuning")
@@ -374,6 +499,7 @@ class DatasetPathRequest(BaseModel):
 def load_dataset_from_path(request: DatasetPathRequest):
     """
     Load a dataset for fine-tuning from a specified path.
+    If the path doesn't exist locally, attempt to download it from Hugging Face.
 
     Args:
         request (DatasetPathRequest): Request body containing dataset_path and subset_size.
@@ -387,12 +513,32 @@ def load_dataset_from_path(request: DatasetPathRequest):
         raise HTTPException(status_code=400, detail="dataset_path must be provided")
 
     try:
-        # Load dataset using the provided path and preprocess it in one step
-        dataset = framework_instance.load_dataset(request.dataset_path, subset_size=request.subset_size)
+        validate_framework_instance()
+        
+        dataset_path = request.dataset_path
+        
+        # Check if this looks like a Hugging Face dataset name (contains slash and doesn't exist locally)
+        if "/" in dataset_path and not os.path.exists(dataset_path):
+            print(f"Dataset path {dataset_path} looks like a Hugging Face dataset name. Attempting to download...")
+            
+            # Download the dataset first
+            download_request = DownloadDatasetRequest(dataset_name=dataset_path, subset_size=request.subset_size)
+            download_result = download_dataset(download_request)
+            if download_result["status"] == "success":
+                dataset_path = download_result["dataset_path"]
+                print(f"Dataset downloaded to {dataset_path}")
+            else:
+                raise Exception(f"Failed to download dataset: {download_result}")
+
+        # Load dataset using the provided path (now local)
+        dataset = framework_instance.load_dataset(dataset_path, subset_size=request.subset_size)
+        
+        # Automatically preprocess the data
+        framework_instance.preprocess_data()
 
         return {
             "status": "success",
-            "dataset_path": request.dataset_path,
+            "dataset_path": dataset_path,
             "num_samples": len(dataset)
         }
     except Exception as e:
@@ -408,6 +554,8 @@ def preprocess_data():
     """
     global framework_instance
     try:
+        validate_framework_instance()
+        
         framework_instance.preprocess_data()
         return {"status": "success", "message": "Data preprocessing completed"}
     except Exception as e:
@@ -432,6 +580,8 @@ def train_model(request: TrainingRequest):
     """
     global framework_instance
     try:
+        validate_framework_instance()
+        
         # Setup training configuration
         framework_instance.setup_training(output_dir=request.output_dir, max_steps=request.max_steps)
 
@@ -455,6 +605,8 @@ def setup_training(output_dir: str = "outputs", max_steps: int = 30):
     """
     global framework_instance
     try:
+        validate_framework_instance()
+        
         framework_instance.setup_training(output_dir=output_dir, max_steps=max_steps)
         return {"status": "success", "message": "Training configuration set up"}
     except Exception as e:
@@ -470,6 +622,8 @@ def train():
     """
     global framework_instance
     try:
+        validate_framework_instance()
+        
         stats = framework_instance.train()
         return {"status": "success", "training_stats": stats}
     except Exception as e:
@@ -488,6 +642,8 @@ def save_model(output_dir: str = "fine_tuned_model"):
     """
     global framework_instance
     try:
+        validate_framework_instance()
+        
         framework_instance.save_model(output_dir=output_dir)
         return {"status": "success", "model_saved_to": output_dir}
     except Exception as e:
@@ -496,7 +652,7 @@ def save_model(output_dir: str = "fine_tuned_model"):
 if __name__ == "__main__":
     import uvicorn
     # Run the app with CORS enabled and accessible from any host
-    uvicorn.run(app, host="0.0.0.0", port=8070, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8071, log_level="info")
 
 
 

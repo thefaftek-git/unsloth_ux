@@ -81,6 +81,11 @@
             <option value="distilbert-base-uncased">DistilBERT</option>
         </select>
 
+        <!-- Hugging Face token input -->
+        <label for="hfToken">Hugging Face Token (optional, for private models):</label>
+        <input type="password" id="hfToken" placeholder="hf_...">
+        <small style="color: #666;">Required for models like Gemma, Llama, etc. Get yours from <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a></small>
+
         <button onclick="loadModel()">Load Model</button>
         <div id="modelStatus" class="status"></div>
 
@@ -262,6 +267,7 @@
             // Check which model source is selected (local or Hugging Face)
             const hfModelSelect = document.getElementById('hfModelSelect');
             const localModelSelect = document.getElementById('localModelSelect');
+            const hfToken = document.getElementById('hfToken').value.trim();
 
             let modelName;
             if (hfModelSelect.value) {
@@ -276,7 +282,16 @@
             }
 
             try {
-                const response = await fetch(`/load-model/`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_name: modelName }) });
+                const requestBody = { model_name: modelName };
+                if (hfToken) {
+                    requestBody.hf_token = hfToken;
+                }
+
+                const response = await fetch(`/load-model/`, { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify(requestBody) 
+                });
                 const data = await response.json();
 
                 if (data.status === 'success') {

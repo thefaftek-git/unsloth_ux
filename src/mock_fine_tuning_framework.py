@@ -22,15 +22,28 @@ class MockFineTuningFramework:
         self.processor = "mock_processor"
         self.trainer = None
         self.dataset = None
+        self.full_finetuning = False  # Track fine-tuning mode
 
-    def load_model(self, model_name: str = "gemma3n-4b"):
+    def load_model(self, model_name: str = "gemma3n-4b", hf_token: str = None, full_finetuning: bool = False):
         """
         Mock method to simulate loading a pre-trained model.
 
         Args:
             model_name (str): Name of the model to load. Defaults to "gemma3n-4b".
+            hf_token (str): Hugging Face token for accessing private models. Optional.
+            full_finetuning (bool): Whether to enable full fine-tuning instead of LoRA. Defaults to False.
         """
         print(f"Mock: Loading model {model_name}...")
+        
+        # Store full_finetuning preference for later use
+        self.full_finetuning = full_finetuning
+        if full_finetuning:
+            print("Mock: Full fine-tuning mode enabled - all model parameters will be trainable")
+        else:
+            print("Mock: LoRA fine-tuning mode enabled - only adapter parameters will be trainable")
+        
+        if hf_token:
+            print("Mock: Using Hugging Face token for authentication")
         # Simulate successful model loading
         self.model = f"mock_{model_name}"
         self.processor = f"{model_name}_processor"
@@ -49,17 +62,30 @@ class MockFineTuningFramework:
         """
         print(f"Mock: Loading dataset from {dataset_path}...")
         if os.path.exists(dataset_path):
+            # Check if it's a directory with dataset_info.json (saved using save_to_disk)
+            if os.path.isdir(dataset_path) and os.path.exists(os.path.join(dataset_path, "dataset_info.json")):
+                print("Mock: Loading dataset from disk format...")
+                from datasets import load_from_disk
+                self.dataset = load_from_disk(dataset_path)
             # Load local dataset - check file extension
-            if dataset_path.endswith('.json') or (os.path.isdir(dataset_path) and any(f.endswith('.json') for f in os.listdir(dataset_path))):
+            elif dataset_path.endswith('.json') or (os.path.isdir(dataset_path) and any(f.endswith('.json') for f in os.listdir(dataset_path))):
                 self.dataset = load_dataset('json', data_files=dataset_path, split='train')
+            elif dataset_path.endswith('.jsonl') or (os.path.isdir(dataset_path) and any(f.endswith('.jsonl') for f in os.listdir(dataset_path))):
+                # Handle JSONL files
+                if os.path.isdir(dataset_path):
+                    # Find all jsonl files in the directory
+                    jsonl_files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.jsonl')]
+                    self.dataset = load_dataset('json', data_files=jsonl_files, split='train')
+                else:
+                    self.dataset = load_dataset('json', data_files=dataset_path, split='train')
             elif dataset_path.endswith('.parquet') or (os.path.isdir(dataset_path) and any(f.endswith('.parquet') for f in os.listdir(dataset_path))):
                 # Handle parquet files
                 if os.path.isdir(dataset_path):
                     # Find all parquet files in the directory
                     parquet_files = [os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith('.parquet')]
-                    self.dataset = load_dataset('parquet', data_files=parquet_files)
+                    self.dataset = load_dataset('parquet', data_files=parquet_files, split='train')
                 else:
-                    self.dataset = load_dataset('parquet', data_files=dataset_path)
+                    self.dataset = load_dataset('parquet', data_files=dataset_path, split='train')
             else:
                 # Try to auto-detect format
                 try:
@@ -93,30 +119,45 @@ class MockFineTuningFramework:
         if dataset is None:
             raise ValueError("No dataset available. Please load a dataset first.")
 
-        # Convert dataset to the format expected by unsloth
-        def convert_to_conversation(sample):
-            """Convert sample to conversation format."""
-            conversations = sample.get('conversations', [])
-            if not conversations:
-                return None
-
-            # Convert to the format expected by the model
-            converted_conversation = {
-                "messages": []
-            }
-
-            for conv in conversations:
-                role = conv.get('from', 'user')
-                content = conv.get('value', '')
-                message = {"role": role, "content": [{"type": "text", "text": content}]}
-                converted_conversation["messages"].append(message)
-
-            return converted_conversation
-
-        # Apply conversion to all samples
+        # Mock: Try to use unsloth's standardize_data_formats
         print("Mock: Preprocessing data...")
-        self.dataset = dataset.map(lambda x: convert_to_conversation(x), remove_columns=dataset.column_names)
-        print("Mock: Data preprocessing completed.")
+        try:
+            from unsloth.chat_templates import standardize_data_formats
+            print("Mock: Using unsloth's standardize_data_formats for data preprocessing...")
+            self.dataset = standardize_data_formats(dataset)
+            print("Mock: Data preprocessing completed using unsloth's standardize_data_formats.")
+        except ImportError:
+            print("Mock: unsloth.chat_templates not available, using mock preprocessing...")
+            # Mock conversion that handles any dataset format
+            def convert_to_mock_format(sample):
+                """Convert any sample to mock format."""
+                # Check for conversational format
+                if 'conversations' in sample:
+                    conversations = sample.get('conversations', [])
+                    if conversations:
+                        return {"messages": [{"role": "mock", "content": "mock conversation"}]}
+                
+                # Handle software engineering datasets (SWE-bench style)
+                elif any(field in sample for field in ['problem_statement', 'patch', 'repo', 'instance_id']):
+                    return {"messages": [{"role": "mock", "content": "mock swe dataset"}]}
+                
+                # Handle other formats
+                else:
+                    return {"messages": [{"role": "mock", "content": "mock general dataset"}]}
+
+            # Apply mock conversion to all samples
+            self.dataset = dataset.map(lambda x: convert_to_mock_format(x), remove_columns=dataset.column_names)
+            print("Mock: Data preprocessing completed using fallback method.")
+                    role = conv.get('from', 'user')
+                    content = conv.get('value', '')
+                    message = {"role": role, "content": [{"type": "text", "text": content}]}
+                    converted_conversation["messages"].append(message)
+
+                return converted_conversation
+
+            # Apply conversion to all samples
+            self.dataset = dataset.map(lambda x: convert_to_conversation(x), remove_columns=dataset.column_names)
+            print("Mock: Data preprocessing completed.")
 
     def setup_training(self, output_dir: str = "outputs", max_steps: int = 30):
         """
